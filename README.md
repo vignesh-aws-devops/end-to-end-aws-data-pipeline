@@ -26,4 +26,4 @@ I am excited to share that I’ve built an end-to-end, automated ETL pipeline th
 💡 **AWS Expertise:** Expanded hands-on experience with AWS Glue, Lambda, RDS, SQS, and serverless computing, solving real-world challenges with cloud-native solutions.   
 
 ## 🟢 Let’s Connect!     
-If you’re passionate about DevOps or curious about AWS automation, let’s connect! I’d love to exchange ideas, discuss strategies, or collaborate on exciting projects. Drop your thoughts in the comments!    
+If you’re passionate about DevOps or curious about AWS automation, let’s connect! I’d love to exchange ideas, discuss strategies, or collaborate on exciting projects.  
