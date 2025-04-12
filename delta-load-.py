@@ -11,14 +11,13 @@ import io
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# AWS client initialization
 s3_client = boto3.client('s3')
 secrets_client = boto3.client('secretsmanager')
 dynamodb_client = boto3.client('dynamodb')
 rds_data_client = boto3.client('rds-data')
 rds_client = boto3.client('rds')
 
-# Constants
+
 RDS_SECRET_NAME = "arn:aws:secretsmanager:us-west-1:982723143439:secret:rds-secret-V5LSD8"
 SNS_TOPIC_ARN = "arn:aws:sns:us-west-1:982723143439:DeltaLoadCompletionNotification"
 DYNAMO_DB_TABLE_NAME = "DeltaLoadTracker"
@@ -35,10 +34,7 @@ def main():
     bucket_name, key, folder_name = parse_s3_path(file_path)
     logger.info(f"Processing file at: {file_path}, Bucket: {bucket_name}, Key: {key}")
 
-    # Fetch RDS credentials
     rds_credentials = get_rds_credentials()
-
-    # Read the CSV file from S3 into a Pandas DataFrame
     df = read_s3_file_to_dataframe(bucket_name, key)
     
     table_name = key.split("/")[-1].replace(".csv", "")
@@ -46,18 +42,14 @@ def main():
         logging.error(f"Table {table_name} not found in the database. Exiting job.")
         return
 
-    # Clean the data
-    df_cleaned = clean_data(df)
 
-    # Determine table name
+    df_cleaned = clean_data(df)
     table_name = key.split("/")[-1].replace(".csv", "")
 
-    # Upload data to RDS
     upload_to_rds(df_cleaned, table_name, rds_credentials)
     
     logger.info(f"Successfully inserted data for {table_name}")
 
-    # Update DynamoDB
     update_dynamodb(key, folder_name)
 
     logger.info(f"Successfully processed file {file_path} and uploaded data to RDS.")
@@ -66,20 +58,12 @@ def main():
     
     logger.info("SNS notification sent successfully.")
     
-    
-# def read_s3_file_to_dataframe(bucket_name, key):
-#     response = s3_client.get_object(Bucket=bucket_name, Key=key)
-#     body = response['Body'].read().decode('utf-8')
-#     return pd.read_csv(io.StringIO(body))
 
 def read_s3_file_to_dataframe(bucket_name, key):
     response = s3_client.get_object(Bucket=bucket_name, Key=key)
     body = response['Body'].read().decode('utf-8')
-    
-    # Read the CSV file into a DataFrame
-    df = pd.read_csv(io.StringIO(body))
 
-    # Check for rows with null values and send SNS notification
+    df = pd.read_csv(io.StringIO(body))
     for index, row in df.iterrows():
         if row.isnull().any():
             message = (
@@ -104,7 +88,6 @@ def read_s3_file_to_dataframe(bucket_name, key):
 
     
 def parse_s3_path(s3_path):
-    """Parse the S3 path into bucket, key, and folder_name."""
     parts = s3_path.replace("s3://", "").split("/", 1)
     bucket_name = parts[0]
     key = parts[1]
@@ -112,7 +95,6 @@ def parse_s3_path(s3_path):
     return bucket_name, key, folder_name
     
 def clean_data(df):
-    """Clean data by removing rows with missing values or duplicates."""
     return df.dropna().drop_duplicates()
 
 def get_rds_credentials():
@@ -132,9 +114,6 @@ def get_rds_credentials():
 
     
 def check_rds_table(table_name, rds_credentials):
-    """Check if a table exists in the RDS MySQL database."""
-    
-    # Query to check if the table exists in the information_schema.tables
     query = f"""
     SELECT COUNT(*)
     FROM information_schema.tables
@@ -179,19 +158,15 @@ def check_rds_table(table_name, rds_credentials):
 
     
 def format_value(value):
-    """Format value for SQL insert (handle None, strings, etc.)."""
     if value is None:
         return 'NULL'
     elif isinstance(value, str):
-        # Replace single quotes with double single quotes to escape them in SQL
         return "'{}'".format(value.replace("'", "''"))
     else:
         return str(value)
 
 
 def upload_to_rds(df, table_name, rds_credentials):
-    """Upload data to RDS MySQL with conflict handling."""
-    # Establish connection to MySQL RDS using pymysql
     connection = pymysql.connect(
         host=rds_credentials['RDS_HOST'],
         user=rds_credentials['RDS_USER'],
@@ -204,8 +179,6 @@ def upload_to_rds(df, table_name, rds_credentials):
     
     for _, row in df.iterrows():
         values = ", ".join([format_value(val) for val in row])
-        
-        # Insert with conflict handling: 'ON DUPLICATE KEY UPDATE'
         query = f"""
         INSERT INTO {table_name} ({columns}) 
         VALUES ({values})
@@ -216,7 +189,6 @@ def upload_to_rds(df, table_name, rds_credentials):
         
         try:
             with connection.cursor() as cursor:
-                # Execute the query
                 cursor.execute(query)
                 connection.commit()
                 print(f"Data loaded successfully into {table_name}")
@@ -230,23 +202,17 @@ def upload_to_rds(df, table_name, rds_credentials):
     connection.close()
 
 def update_dynamodb(key, folder_name):
-    """
-    Update DynamoDB to ensure the structure:
-    FileName (Partition Key) -> database_list (value) -> basename (key) -> folder_name (value).
-    """
-    # Fixed table name
+   
     table_name = DYNAMO_DB_TABLE_NAME
 
-    # Static partition key details
-    partition_key_name = "FileName"  # Partition key name (static)
-    partition_key_value = "database_list"  # Partition key value (static)
+    partition_key_name = "FileName" 
+    partition_key_value = "database_list" 
 
     try:
         # Derive basename from the key
         basename = key.split("/")[-1].replace(".csv", "")
         logger.info(f"Derived basename: {basename} from key: {key}")
 
-        # Step 1: Check if FileName (Partition Key) = database_list exists
         logger.info(f"Checking if partition key '{partition_key_value}' exists in table '{table_name}'")
         response = dynamodb_client.get_item(
             TableName=table_name,
@@ -255,7 +221,6 @@ def update_dynamodb(key, folder_name):
 
         if 'Item' not in response:
             logger.warning(f"Partition key '{partition_key_value}' does not exist. Creating it.")
-            # Partition key does not exist; create it
             dynamodb_client.put_item(
                 TableName=table_name,
                 Item={
@@ -264,8 +229,6 @@ def update_dynamodb(key, folder_name):
                 }
             )
             logger.info(f"Created partition key '{partition_key_value}'.")
-
-        # Step 2: Check if the partition key has the `basename` key
         logger.info(f"Fetching updated partition key '{partition_key_value}' from table '{table_name}'")
         response = dynamodb_client.get_item(
             TableName=table_name,
@@ -277,7 +240,6 @@ def update_dynamodb(key, folder_name):
 
         if basename in database_list_item:
             logger.info(f"Basename '{basename}' exists. Updating its 'folder_name' to '{folder_name}'.")
-            # `basename` exists; update its `folder_name`
             dynamodb_client.update_item(
                 TableName=table_name,
                 Key={partition_key_name: {'S': partition_key_value}},
@@ -288,7 +250,6 @@ def update_dynamodb(key, folder_name):
             logger.info(f"Successfully updated 'folder_name' for basename '{basename}'.")
         else:
             logger.warning(f"Basename '{basename}' does not exist. Creating it with 'folder_name' = '{folder_name}'.")
-            # `basename` does not exist; create it with `folder_name`
             dynamodb_client.update_item(
                 TableName=table_name,
                 Key={partition_key_name: {'S': partition_key_value}},
@@ -303,15 +264,7 @@ def update_dynamodb(key, folder_name):
         logger.error(f"Error updating DynamoDB: {e}")
         raise
     
-def send_sns_notification(table_name, file_path):
-    """
-    Send an SNS notification to a specified topic.
-    Args:
-        table_name (str): Name of the RDS table.
-        file_path (str): S3 file path being processed.
-    """
-    
-    
+def send_sns_notification(table_name, file_path)
     message = (
         f"Data has been successfully loaded to the RDS table '{table_name}' "
         f"from the S3 file located at '{file_path}'.\n\n"
